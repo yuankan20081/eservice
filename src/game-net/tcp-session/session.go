@@ -15,8 +15,14 @@ import (
 	"time"
 )
 
+var (
+	ErrHeartbeatStop = errors.New("connection stops heartbeat")
+	ErrIllegalPacket = errors.New("illegal packet")
+)
+
 type TcpSession struct {
 	sendChannel      chan *buffer.Buffer
+	recvChannel      chan *buffer.Buffer
 	readyProcChannel chan bool
 	readySendChannel chan bool
 	listProc         *list.List
@@ -27,11 +33,13 @@ type TcpSession struct {
 	errorChannel     chan error
 	bufferProcessor  buffer.Handler
 	cleanupChannel   chan bool
+	timeoutPoint     time.Time
 }
 
 func New(p *pool.Pool, bufferProcessor buffer.Handler) *TcpSession {
 	return &TcpSession{
 		sendChannel:      make(chan *buffer.Buffer, 1000),
+		recvChannel:      make(chan *buffer.Buffer, 1000),
 		readyProcChannel: make(chan bool, 1),
 		readySendChannel: make(chan bool, 1),
 		listProc:         list.New(),
@@ -42,6 +50,7 @@ func New(p *pool.Pool, bufferProcessor buffer.Handler) *TcpSession {
 		errorChannel:     make(chan error, 1),
 		bufferProcessor:  bufferProcessor,
 		cleanupChannel:   make(chan bool, 1),
+		timeoutPoint:     time.Now().Add(time.Second * 10),
 	}
 }
 
@@ -51,6 +60,13 @@ func (ts *TcpSession) Cleanup() {
 	close(ts.sendChannel)
 	if len(ts.sendChannel) > 0 {
 		for pac := range ts.sendChannel {
+			ts.bufferPool.Put(pac)
+		}
+	}
+
+	close(ts.recvChannel)
+	if len(ts.recvChannel) > 0 {
+		for pac := range ts.recvChannel {
 			ts.bufferPool.Put(pac)
 		}
 	}
@@ -85,12 +101,61 @@ func (ts *TcpSession) Handle(ctx context.Context, conn net.Conn) error {
 	ts.readySendChannel <- true
 	ts.readyProcChannel <- true
 
+	go withRecover(func() {
+		ts.doReadPacAsync(ctx, conn)
+	})
+
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 			{
+				var counter int = 0
+
+				// process errors first
+				select {
+				case err := <-ts.errorChannel:
+					// if get an error, just break the loop
+					// because somewhere is going wrong
+					return err
+				default:
+
+				}
+
+				// read write
+				select {
+				case pac := <-ts.sendChannel:
+					select {
+					case <-ts.readySendChannel:
+						// can send now, so send it right now
+						ts.listSend.PushBack(pac)
+						go ts.doSendAsync(ctx, conn)
+					default:
+						ts.listPreSend.PushBack(pac)
+					}
+				default:
+					counter += 1
+				}
+
+				select {
+				case pac := <-ts.recvChannel:
+					// reset heartbeat
+					ts.timeoutPoint = time.Now().Add(time.Second * 10)
+
+					select {
+					case <-ts.readyProcChannel:
+						// can process now, so process it right now
+						ts.listProc.PushBack(pac)
+						go ts.doProcessAsync(ctx)
+					default:
+						ts.listPreProc.PushBack(pac)
+					}
+				default:
+					counter += 1
+				}
+
+				// send and process
 				select {
 				case <-ts.readySendChannel:
 					// check pre send list
@@ -101,11 +166,12 @@ func (ts *TcpSession) Handle(ctx context.Context, conn net.Conn) error {
 
 					if ts.listSend.Len() > 0 {
 						go ts.doSendAsync(ctx, conn)
-						continue
-					} else {
-						ts.readySendChannel <- true
-						// go on do some read
 					}
+				default:
+					counter += 1
+				}
+
+				select {
 				case <-ts.readyProcChannel:
 					// check pre process list
 					if ts.listPreProc.Len() > 0 {
@@ -115,41 +181,19 @@ func (ts *TcpSession) Handle(ctx context.Context, conn net.Conn) error {
 
 					if ts.listProc.Len() > 0 {
 						go ts.doProcessAsync(ctx)
-						continue
-					} else {
-						ts.readyProcChannel <- true
-						// go on do some read
 					}
-				case pac := <-ts.sendChannel:
-					select {
-					case <-ts.readySendChannel:
-						// can send now, so send it right now
-						ts.listSend.PushBack(pac)
-						go ts.doSendAsync(ctx, conn)
-					default:
-						ts.listProc.PushBack(pac)
-					}
-				case err := <-ts.errorChannel:
-					// if get an error, just break the loop
-					// because somewhere is going wrong
-					return err
 				default:
-
+					counter += 1
 				}
 
-				// TODO: read and to process list
-				conn.SetReadDeadline(time.Now().Add(time.Millisecond * 100))
-				pac, err := ts.readPac(ctx, conn)
-				if err != nil {
-					return err
+				// check heartbeat
+				if time.Now().After(ts.timeoutPoint) {
+					return ErrHeartbeatStop
 				}
-				select {
-				case <-ts.readyProcChannel:
-					// can process now, process right now
-					ts.listProc.PushBack(pac)
-					go ts.doProcessAsync(ctx)
-				default:
-					ts.listPreProc.PushBack(pac)
+
+				// idle
+				if counter == 4 {
+					time.Sleep(time.Millisecond * 10)
 				}
 			}
 		}
@@ -200,24 +244,27 @@ loop:
 	}
 }
 
-func (ts *TcpSession) readPac(ctx context.Context, r io.Reader) (*buffer.Buffer, error) {
+func (ts *TcpSession) doReadPacAsync(ctx context.Context, r io.Reader) {
 	var head game_net.PacketHead
 	if err := binary.Read(r, binary.LittleEndian, &head); err != nil {
-		return nil, err
+		ts.errorChannel <- err
+		return
 	}
 
 	// validate head
 	if head.PayloadLength > game_net.MaxPayloadLength {
-		return nil, errors.New("invalid packet head, payload length too big")
+		ts.errorChannel <- ErrIllegalPacket
+		return
 	}
 
 	pac := ts.bufferPool.Get()
 
 	if _, err := io.CopyN(pac, r, int64(head.PayloadLength)); err != nil {
 		ts.bufferPool.Put(pac)
-		return nil, err
+		ts.errorChannel <- err
+		return
 	} else {
-		return pac, nil
+		ts.recvChannel <- pac
 	}
 }
 

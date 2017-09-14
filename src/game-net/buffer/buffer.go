@@ -27,6 +27,10 @@ func (b *Buffer) SetProto(proto uint32) {
 	b.proto = proto
 }
 
+func (b *Buffer) Proto() uint32 {
+	return b.proto
+}
+
 func (b *Buffer) Write(p []byte) (int, error) {
 	return b.buffer.Write(p)
 }

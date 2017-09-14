@@ -2,6 +2,7 @@ package tcp_server
 
 import (
 	"bytes"
+	"fmt"
 	"golang.org/x/net/context"
 	"log"
 	"net"
@@ -97,6 +98,6 @@ func (ts *TcpServer) withRecoverHandleRawConnAsync(conn net.Conn) {
 	ts.wg.Add(1)
 
 	if err := ts.handler.Handle(ts.ctx, conn); err != nil {
-		log.Println(err)
+		log.Println(fmt.Sprintf("[%s] %s", conn.RemoteAddr(), err.Error()))
 	}
 }

@@ -34,7 +34,7 @@ func (p *Pool) pop() (*grpc.ClientConn, error) {
 		return cc, nil
 	default:
 		ctx, _ := context.WithTimeout(p.ctx, time.Second*5)
-		return grpc.DialContext(ctx, p.target, grpc.WithInsecure())
+		return grpc.DialContext(ctx, p.target, grpc.WithInsecure(), grpc.WithBlock())
 	}
 }
 
@@ -77,6 +77,10 @@ func (p *Pool) Call(ctx context.Context, method string, request interface{}, opt
 		reflect.ValueOf(ctx),
 		reflect.ValueOf(request),
 		// TODO: add opts...
+	}
+
+	for i := 0; i < len(args); i++ {
+		args = append(args, reflect.ValueOf(opts))
 	}
 
 	resp := rpcClientMethod.Call(args)

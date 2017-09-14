@@ -92,6 +92,7 @@ func (ts *TcpServer) withRecoverHandleRawConnAsync(conn net.Conn) {
 		ts.wg.Done()
 		ts.sem <- 1
 	}()
+	defer conn.Close()
 
 	ts.wg.Add(1)
 

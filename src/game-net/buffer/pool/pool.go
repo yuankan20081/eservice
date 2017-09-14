@@ -1,7 +1,7 @@
 package pool
 
 import (
-	"game_net/buffer"
+	"game-net/buffer"
 	"sync"
 )
 

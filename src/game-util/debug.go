@@ -22,6 +22,7 @@ func SetMode(mode BuildMode) {
 
 func Debug(format string, args ...interface{}) {
 	if defaultMode == DebugMode {
-		log.Println(fmt.Sprintf(format, args...))
+		msg := fmt.Sprintf(format, args...)
+		log.Println("[DEBUGIN]", msg)
 	}
 }

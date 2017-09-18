@@ -2,13 +2,17 @@ package main
 
 import (
 	"game-caidian/internal/agent"
+	"game-caidian/internal/logic"
 	"game-net/buffer/pool"
 	"game-net/tcp-server"
 	"game-net/tcp-session"
 	"golang.org/x/net/context"
 	"log"
 	"net"
-	"time"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
 )
 
 func main() {
@@ -18,19 +22,60 @@ func main() {
 	}
 	defer l.Close()
 
-	bufferPool := pool.New()
+	errChannel := make(chan error, 1)
+	var wg sync.WaitGroup
+	ctx, cancelCtx := context.WithCancel(context.Background())
 
-	s := tcp_server.New(tcp_server.RawConnHandleFunc(func(ctx context.Context, conn net.Conn) error {
-		c := tcp_session.New(bufferPool, agent.NewHandler())
+	// start game engine
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
 
-		defer c.Cleanup()
+		ge := logic.NewGameEngine()
+		if err := ge.Serve(ctx); err != nil {
+			errChannel <- err
+		}
+	}()
 
-		return c.Handle(ctx, conn)
-	}))
+	// start server
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
 
-	ctx, _ := context.WithTimeout(context.Background(), time.Second*30)
+		bufferPool := pool.New()
 
-	if err := s.Serve(ctx, l, 1000); err != nil {
+		s := tcp_server.New(tcp_server.RawConnHandleFunc(func(ctx context.Context, conn net.Conn) error {
+			c := tcp_session.New(bufferPool, agent.NewHandler())
+
+			defer c.Cleanup()
+
+			return c.Handle(ctx, conn)
+		}))
+
+		if err := s.Serve(ctx, l, 1000); err != nil {
+			errChannel <- err
+		}
+	}()
+
+	// handle signal
+	go func() {
+		sigChannel := make(chan os.Signal, 1)
+		signal.Notify(sigChannel, syscall.SIGINT, syscall.SIGTERM)
+
+		<-sigChannel
+
+		cancelCtx()
+	}()
+
+	select {
+	case <-ctx.Done():
+		log.Println(ctx.Err())
+	case err := <-errChannel:
+		cancelCtx()
 		log.Fatalln(err)
 	}
+
+	wg.Wait()
+	log.Println("server stopped")
+
 }

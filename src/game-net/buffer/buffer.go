@@ -46,13 +46,3 @@ func (b *Buffer) WriteTo(w io.Writer) (int64, error) {
 func (b *Buffer) ReadFrom(r io.Reader) (int64, error) {
 	return b.buffer.ReadFrom(r)
 }
-
-type Handler interface {
-	Handle(ctx context.Context, buf *Buffer) error
-}
-
-type HandleFunc func(ctx context.Context, buf *Buffer) error
-
-func (fn HandleFunc) Handle(ctx context.Context, buf *Buffer) error {
-	return fn(ctx, buf)
-}

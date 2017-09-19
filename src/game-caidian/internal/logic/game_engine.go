@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-type Winner interface{
+type Winner interface {
 	Win(gold uint64)
 }
 
@@ -14,7 +14,7 @@ type BankeringInfo interface {
 	BankeringRequest() (region, name string, gold uint64)
 	BankeringReplay(code int32)
 	BankeringId() uint64
-	BecomBanker()	
+	BecomBanker()
 	Winner
 }
 
@@ -36,8 +36,8 @@ const (
 	Rewarding                                // 开奖
 )
 
-func (gs GameEngineStatus) String() string{
-	switch gs{
+func (gs GameEngineStatus) String() string {
+	switch gs {
 	case IsChoosingBanker:
 		return ""
 	case BankerChosed:
@@ -76,6 +76,14 @@ func NewGameEngine() *GameEngine {
 	}
 }
 
+func (ge *GameEngine) AddBankering(info BankeringInfo) {
+	ge.bankerChannel <- info
+}
+
+func (ge *GameEngine) AddBet(info BetInfo) {
+	ge.betChannel <- info
+}
+
 func (ge *GameEngine) Serve(ctx context.Context) error {
 	// prepare
 	ge.statusChangedChannel <- ge.curStatus
@@ -104,7 +112,7 @@ func (ge *GameEngine) Serve(ctx context.Context) error {
 
 		case info := <-ge.bankerChannel:
 			if ge.curStatus != IsChoosingBanker {
-				info.BankeringReplay(0)
+				info.BankeringReplay(1)
 				continue
 			}
 
@@ -114,7 +122,7 @@ func (ge *GameEngine) Serve(ctx context.Context) error {
 			ge.lstBankering[info.BankeringId()] = info
 		case info := <-ge.betChannel:
 			if ge.curStatus != IsBetting {
-				info.BetReply(0)
+				info.BetReply(1)
 				continue
 			}
 

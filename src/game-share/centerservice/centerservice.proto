@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package centerservice;
+
+service CenterService{
+    rpc AgentAuth (AgentAuthRequest) returns (AgentAuthReply) {}
+}
+
+message AgentAuthRequest{
+    string ticket = 1;
+    string ip = 2;
+}
+
+message AgentAuthReply{
+    enum AuthCode{
+        SUCCESS = 0;
+        FAIL = 1;
+    }
+
+    string token = 1;
+    string server = 2;
+    AuthCode code = 4;
+}

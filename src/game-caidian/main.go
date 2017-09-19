@@ -1,11 +1,11 @@
 package main
 
 import (
-	"time"
 	"game-caidian/internal/agent"
 	"game-caidian/internal/logic"
 	"game-net/tcp-server"
 	"game-net/tcp-session"
+	"game-util/publisher"
 	"golang.org/x/net/context"
 	"log"
 	"net"
@@ -13,7 +13,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
-	"game-util/publisher"
+	"time"
 )
 
 func main() {
@@ -23,21 +23,22 @@ func main() {
 	}
 	defer l.Close()
 
-	errChannel := make(chan error, 1)
+	errChannel := make(chan error, 10)
 	var wg sync.WaitGroup
 	ctx, cancelCtx := context.WithCancel(context.Background())
 
 	// debug limit
-	ctx, cancelCtx = context.WithTimeout(ctx, time.Hour * 2)
+	ctx, cancelCtx = context.WithTimeout(ctx, time.Hour*2)
+	log.Println("this is a debug server, will stop after 2 hours!!!")
 
 	// start publisher
 	pub := publisher.New()
 	wg.Add(1)
-	go func(){
+	go func() {
 		defer wg.Done()
 
-		if err := pub.Serve(ctx); err!=nil{
-			errChannel <- err			
+		if err := pub.Serve(ctx); err != nil {
+			errChannel <- err
 		}
 	}()
 
@@ -69,14 +70,8 @@ func main() {
 	}()
 
 	// handle signal
-	go func() {
-		sigChannel := make(chan os.Signal, 1)
-		signal.Notify(sigChannel, syscall.SIGINT, syscall.SIGTERM)
-
-		<-sigChannel
-
-		cancelCtx()
-	}()
+	sigChannel := make(chan os.Signal, 1)
+	signal.Notify(sigChannel, syscall.SIGINT, syscall.SIGTERM)
 
 	select {
 	case <-ctx.Done():
@@ -84,6 +79,8 @@ func main() {
 	case err := <-errChannel:
 		cancelCtx()
 		log.Fatalln(err)
+	case <-sigChannel:
+		cancelCtx()
 	}
 
 	wg.Wait()

@@ -10,13 +10,13 @@ import (
 )
 
 type TcpSessionReader interface{
-	Read(ctx context.Context, p []byte, w io.Writer) error
+	Read(ctx context.Context, r io.Reader, w io.Writer) error
 }
 
-type TcpSessionReadFunc func(ctx context.Context, p []byte, w io.Writer) error
+type TcpSessionReadFunc func(ctx context.Context, r io.Reader, w io.Writer) error
 
-func (fn TcpSessionReadFunc) Read(ctx context.Context, p []byte, w io.Writer)error{
-	return fn(ctx, p, w)
+func (fn TcpSessionReadFunc) Read(ctx context.Context, r io.Reader, w io.Writer)error{
+	return fn(ctx, r, w)
 }
 
 type TcpSession struct {
@@ -27,11 +27,11 @@ type TcpSession struct {
 	CustomReader TcpSessionReader
 }
 
-func New(cb TcpSessionOnReader) *TcpSession {
+func New(cb TcpSessionReader) *TcpSession {
 	return &TcpSession{
 		errorChannel: make(chan error, 1),
 		sendChannel: make(chan []byte, 1000),
-		OnReader: cb,
+		CustomReader: cb,
 	}
 }
 

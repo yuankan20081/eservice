@@ -3,7 +3,6 @@ package main
 import (
 	"game-caidian/internal/agent"
 	"game-caidian/internal/logic"
-	"game-net/buffer/pool"
 	"game-net/tcp-server"
 	"game-net/tcp-session"
 	"golang.org/x/net/context"
@@ -13,6 +12,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"game-util/publisher"
 )
 
 func main() {
@@ -25,6 +25,17 @@ func main() {
 	errChannel := make(chan error, 1)
 	var wg sync.WaitGroup
 	ctx, cancelCtx := context.WithCancel(context.Background())
+
+	// start publisher
+	pub := publisher.New()
+	wg.Add(1)
+	go func(){
+		defer wg.Done()
+
+		if err := pub.Serve(ctx); err!=nil{
+			errChannel <- err			
+		}
+	}()
 
 	// start game engine
 	wg.Add(1)
@@ -42,14 +53,10 @@ func main() {
 	go func() {
 		defer wg.Done()
 
-		bufferPool := pool.New()
-
 		s := tcp_server.New(tcp_server.RawConnHandleFunc(func(ctx context.Context, conn net.Conn) error {
-			c := tcp_session.New(bufferPool, agent.NewHandler())
+			c := tcp_session.New(agent.NewReader(pub))
 
-			defer c.Cleanup()
-
-			return c.Handle(ctx, conn)
+			return c.Serve(ctx, conn)
 		}))
 
 		if err := s.Serve(ctx, l, 1000); err != nil {

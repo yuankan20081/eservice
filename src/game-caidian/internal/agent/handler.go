@@ -37,7 +37,7 @@ func (h *Reader) Read(ctx context.Context, r io.Reader, w io.Writer) error {
 		}
 
 		buf := new(bytes.Buffer)
-		if _, err := io.CopyN(buf, r, head.PayloadLength); err!=nil{
+		if _, err := io.CopyN(buf, r, int64(head.PayloadLength)); err!=nil{
 			return err			
 		}
 

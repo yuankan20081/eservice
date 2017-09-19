@@ -35,12 +35,16 @@ func (pub *Publisher) Add(token string, w io.Writer) error {
 	}
 
 	pub.m[token] = w
+
+	return nil
 }
 
 func (pub *Publisher) Remove(token string) error {
 	pub.mu.Lock()
 	defer pub.mu.Unlock()
 	delete(pub.m, token)
+
+	return nil
 }
 
 func (pub *Publisher) Write(p []byte) (int, error) {
@@ -50,6 +54,8 @@ func (pub *Publisher) Write(p []byte) (int, error) {
 	for token, w := range pub.m {
 		go pub.publish(token, w, p)
 	}
+
+	return len(p), nil
 }
 
 func (pub *Publisher) Serve(ctx context.Context) error {
@@ -57,7 +63,7 @@ func (pub *Publisher) Serve(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case err := pub.errorChannel:
+		case err := <-pub.errorChannel:
 			log.Println(err)
 		}
 	}

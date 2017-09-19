@@ -2,7 +2,6 @@ package buffer
 
 import (
 	"bytes"
-	"golang.org/x/net/context"
 	"io"
 )
 

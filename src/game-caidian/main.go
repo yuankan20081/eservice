@@ -1,6 +1,7 @@
 package main
 
 import (
+	"time"
 	"game-caidian/internal/agent"
 	"game-caidian/internal/logic"
 	"game-net/tcp-server"
@@ -25,6 +26,9 @@ func main() {
 	errChannel := make(chan error, 1)
 	var wg sync.WaitGroup
 	ctx, cancelCtx := context.WithCancel(context.Background())
+
+	// debug limit
+	ctx, cancelCtx = context.WithTimeout(ctx, time.Hour * 2)
 
 	// start publisher
 	pub := publisher.New()

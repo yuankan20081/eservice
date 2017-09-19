@@ -6,16 +6,23 @@ import (
 	"time"
 )
 
+type Winner interface{
+	Win(gold uint64)
+}
+
 type BankeringInfo interface {
 	BankeringRequest() (region, name string, gold uint64)
 	BankeringReplay(code int32)
 	BankeringId() uint64
+	BecomBanker()	
+	Winner
 }
 
 type BetInfo interface {
 	BetRequest() (region, name string, pos int32, gold uint64)
 	BetReply(code int32)
 	BetterId() uint64
+	Winner
 }
 
 type GameEngineStatus int32
@@ -53,8 +60,8 @@ type GameEngine struct {
 	statusChangedChannel chan GameEngineStatus
 	bankerChannel        chan BankeringInfo
 	betChannel           chan BetInfo
-	lstBankering         map[int32]BankeringInfo
-	lstBetting           map[int32]BetInfo
+	lstBankering         map[uint64]BankeringInfo
+	lstBetting           map[uint64]BetInfo
 	results              [3]int32
 }
 
@@ -64,8 +71,8 @@ func NewGameEngine() *GameEngine {
 		statusChangedChannel: make(chan GameEngineStatus, 1),
 		bankerChannel:        make(chan BankeringInfo, 1000),
 		betChannel:           make(chan BetInfo, 1000),
-		lstBankering:         make(map[int32]BankeringInfo),
-		lstBetting:           make(map[int32]BetInfo),
+		lstBankering:         make(map[uint64]BankeringInfo),
+		lstBetting:           make(map[uint64]BetInfo),
 	}
 }
 

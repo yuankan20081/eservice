@@ -23,8 +23,8 @@ type TcpSession struct {
 	wg sync.WaitGroup
 	errorChannel chan error
 	sendChannel chan []byte
-	
 	CustomReader TcpSessionReader
+	closedChannel chan bool
 }
 
 func New(cb TcpSessionReader) *TcpSession {
@@ -32,6 +32,7 @@ func New(cb TcpSessionReader) *TcpSession {
 		errorChannel: make(chan error, 1),
 		sendChannel: make(chan []byte, 1000),
 		CustomReader: cb,
+		closedChannel: make(chan bool),
 	}
 }
 
@@ -43,7 +44,11 @@ func (ts *TcpSession) Serve(ctx context.Context, conn net.Conn) error{
 	go ts.doRead(ctx, conn)
 	go ts.doWrite(ctx, conn)
 
-	defer ts.wg.Wait()
+
+	defer func(){
+		close(ts.closedChannel)
+		ts.wg.Wait()		
+	}()
 
 	select{
 	case <-ctx.Done():
@@ -55,7 +60,11 @@ func (ts *TcpSession) Serve(ctx context.Context, conn net.Conn) error{
 }
 
 func (ts *TcpSession) Write(p []byte) (int, error){
-	ts.sendChannel <- p
+	select{
+	case <-ts.closedChannel:
+	default:
+		ts.sendChannel <- p
+	}	
 	return len(p), nil
 }
 

@@ -29,6 +29,23 @@ const (
 	Rewarding                                // 开奖
 )
 
+func (gs GameEngineStatus) String() string{
+	switch gs{
+	case IsChoosingBanker:
+		return ""
+	case BankerChosed:
+		return ""
+	case IsBetting:
+		return ""
+	case BettingClosed:
+		return ""
+	case Balancing:
+		return ""
+	case Rewarding:
+		return ""
+	}
+}
+
 type GameEngine struct {
 	curStatus            GameEngineStatus
 	statusChangedChannel chan GameEngineStatus

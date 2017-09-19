@@ -45,8 +45,8 @@ func (h *Reader) Read(ctx context.Context, r io.Reader, w io.Writer) error {
 			// TODO: do auth rpc
 
 			// TODO: regist to publisher
-			h.pub.Add("md5", w)
-			defer h.pub.Remove("md5")
+			h.pub.Add( w)
+			defer h.pub.Remove(w)
 		}
 
 		if err := h.executeBuffer(head.Proto, buf); err!=nil{

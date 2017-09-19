@@ -43,6 +43,8 @@ func (gs GameEngineStatus) String() string{
 		return ""
 	case Rewarding:
 		return ""
+	default:
+		return "unknown"
 	}
 }
 

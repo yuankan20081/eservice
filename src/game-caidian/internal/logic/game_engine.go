@@ -8,14 +8,14 @@ import (
 
 type BankeringInfo interface {
 	BankeringRequest() (region, name string, gold uint64)
-	BankeringReplay(ok bool, code int32)
-	BankeringId() int32
+	BankeringReplay(code int32)
+	BankeringId() uint64
 }
 
 type BetInfo interface {
 	BetRequest() (region, name string, pos int32, gold uint64)
-	BetReply(ok bool, code int32)
-	BetterId() int32
+	BetReply(code int32)
+	BetterId() uint64
 }
 
 type GameEngineStatus int32
@@ -97,7 +97,7 @@ func (ge *GameEngine) Serve(ctx context.Context) error {
 
 		case info := <-ge.bankerChannel:
 			if ge.curStatus != IsChoosingBanker {
-				info.BankeringReplay(false, 0)
+				info.BankeringReplay(0)
 				continue
 			}
 
@@ -107,7 +107,7 @@ func (ge *GameEngine) Serve(ctx context.Context) error {
 			ge.lstBankering[info.BankeringId()] = info
 		case info := <-ge.betChannel:
 			if ge.curStatus != IsBetting {
-				info.BetReply(false, 0)
+				info.BetReply(0)
 				continue
 			}
 

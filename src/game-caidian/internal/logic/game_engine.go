@@ -180,14 +180,36 @@ func (ge *GameEngine) beginEventChoosingBanker(ctx context.Context) error {
 
 func (ge *GameEngine) beginEventBankerClose(ctx context.Context) error {
 	game_util.Debug("---当前阶段 %s---", ge.curStatus)
-	// TODO: choose a banker or go back choosing
-	if len(ge.lstBankering) == 0 {
-		time.AfterFunc(time.Second*2, func() {
-			ge.statusChangedChannel <- IsChoosingBanker
-		})
-	} else {
 
+	enterNextStep := func() {
+		ge.statusChangedChannel <- IsChoosingBanker
 	}
+
+	// TODO: choose a banker or go back choosing
+	if len(ge.lstBankering) > 0 {
+		var find BankeringInfo
+		for _, info := range ge.lstBankering {
+			if find == nil {
+				find = info
+			} else if info.BankMoreThan(find) {
+				find = info
+			}
+		}
+
+		if find != nil {
+			ge.curBankerServer, ge.curBankerName, ge.curBankerGold = find.BankeringRequest()
+			ge.curBigbetAvail = ge.curBankerGold
+			ge.curSmallbetAvail = ge.curBankerGold
+
+			// TODO: maybe should broadcast?
+			find.BecomeBanker()
+			enterNextStep = func() {
+				ge.statusChangedChannel <- IsBetting
+			}
+		}
+	}
+
+	time.AfterFunc(time.Second*2, enterNextStep)
 
 	return nil
 }

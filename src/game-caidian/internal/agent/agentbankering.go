@@ -66,3 +66,8 @@ func (ab *AgentBankering) Win(gold uint64) {
 
 	ab.w.WriteResponse(SmAgentGift, &body)
 }
+
+func (ab *AgentBankering) BankMoreThan(other BankeringInfo) bool {
+	_, _, gold := other.BankeringRequest()
+	return ab.gold > gold
+}

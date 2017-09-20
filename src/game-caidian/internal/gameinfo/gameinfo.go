@@ -9,6 +9,7 @@ type BankeringInfo interface {
 	BankeringReply(code int32)
 	BankeringId() string
 	BecomeBanker()
+	BankMoreThan(other BankeringInfo) bool
 	Winner
 }
 

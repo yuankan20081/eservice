@@ -38,7 +38,17 @@ func (gs GameEngineStatus) String() string {
 	}
 }
 
-type GameResult [3]int32
+type GameResult [3]byte
+
+func (gr *GameResult) BankerWin() bool {
+
+	return false
+}
+
+func (gr *GameResult) BigbetWin() bool {
+
+	return false
+}
 
 type GameEngine struct {
 	curStatus            GameEngineStatus
@@ -49,6 +59,13 @@ type GameEngine struct {
 	lstBetting           map[string]BetInfo
 	results              GameResult
 	pub                  *publisher.Publisher
+	curBankerServer      string
+	curBankerName        string
+	curBankerGold        uint64
+	curTotalBigbet       uint64
+	curTotalSmallbet     uint64
+	curBigbetAvail       uint64
+	curSmallbetAvail     uint64
 }
 
 func NewGameEngine(pub *publisher.Publisher) *GameEngine {
@@ -199,25 +216,37 @@ func (ge *GameEngine) beginEventBalance(ctx context.Context) error {
 		ge.statusChangedChannel <- Rewarding
 	})
 
-	// TODO: broadcast result
+	// broadcast result
+	ge.broadcastDice()
 
 	return nil
 }
 
 func (ge *GameEngine) beginEventReward(ctx context.Context) error {
 	game_util.Debug("---当前阶段 %s---", ge.curStatus)
+	// TODO: calc reward
+	if ge.results.BankerWin() {
+
+	} else if ge.results.BigbetWin() {
+
+	} else {
+
+	}
+
 	defer time.AfterFunc(time.Second*2, func() {
+		// TODO: do some cleanup
+		ge.lstBetting = make(map[string]BetInfo)
+		ge.lstBankering = make(map[string]BankeringInfo)
+
 		ge.statusChangedChannel <- IsChoosingBanker
 	})
-
-	// TODO: calc reward
 
 	return nil
 }
 
 func (ge *GameEngine) prepareResults() {
 	for i, _ := range ge.results {
-		ge.results[i] = int32(i)
+		ge.results[i] = byte(i)
 	}
 }
 
@@ -228,4 +257,11 @@ func (ge *GameEngine) broadcastGameStatus() {
 	}
 
 	ge.pub.Publish(SmGameStatus, &body)
+}
+
+func (ge *GameEngine) broadcastDice() {
+	var body BroadcastDice
+	copy(body.Dice.DiceVal[:], ge.results[:])
+
+	ge.pub.Publish(SmBroadcastDice, &body)
 }

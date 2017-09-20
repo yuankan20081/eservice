@@ -43,11 +43,11 @@ func main() {
 	}()
 
 	// start game engine
+	ge := logic.NewGameEngine(pub)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
-		ge := logic.NewGameEngine(pub)
 		if err := ge.Serve(ctx); err != nil {
 			errChannel <- err
 		}
@@ -59,7 +59,7 @@ func main() {
 		defer wg.Done()
 
 		s := tcp_server.New(tcp_server.RawConnHandleFunc(func(ctx context.Context, conn net.Conn) error {
-			c := tcp_session.New(agent.NewReader(pub))
+			c := tcp_session.New(agent.NewReader(pub, ge))
 
 			return c.Serve(ctx, conn)
 		}))

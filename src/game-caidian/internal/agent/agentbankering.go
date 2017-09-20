@@ -25,7 +25,7 @@ func (ab *AgentBankering) BankeringReply(code int32) {
 
 }
 
-func (ab *AgentBankering) BankerId() string {
+func (ab *AgentBankering) BankeringId() string {
 	m := md5.New()
 	io.WriteString(m, ab.token)
 	io.WriteString(m, ab.server)

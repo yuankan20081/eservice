@@ -102,7 +102,7 @@ func (ge *GameEngine) Serve(ctx context.Context) error {
 		case info := <-ge.bankerChannel:
 			if ge.curStatus != IsChoosingBanker {
 				// wrong timing
-				info.BankeringReplay(1)
+				info.BankeringReply(1)
 				continue
 			}
 
@@ -110,7 +110,7 @@ func (ge *GameEngine) Serve(ctx context.Context) error {
 
 			if _, ok := ge.lstBankering[id]; ok {
 				// already in queue
-				info.BankeringReplay(2)
+				info.BankeringReply(2)
 				continue
 			}
 
@@ -118,7 +118,9 @@ func (ge *GameEngine) Serve(ctx context.Context) error {
 
 			// if all ok
 			ge.lstBankering[id] = info
+			info.BankeringReply(0)
 		case info := <-ge.betChannel:
+			// wrong timing
 			if ge.curStatus != IsBetting {
 				info.BetReply(1)
 				continue
@@ -133,6 +135,7 @@ func (ge *GameEngine) Serve(ctx context.Context) error {
 				} else {
 					// update old from info
 					old.UpdateFrom(info)
+					info.BetReply(0)
 				}
 
 				continue
@@ -140,6 +143,7 @@ func (ge *GameEngine) Serve(ctx context.Context) error {
 
 			// if fresh new info
 			ge.lstBetting[info.BetterId()] = info
+			info.BetReply(0)
 		}
 	}
 

@@ -6,9 +6,9 @@ type Winner interface {
 
 type BankeringInfo interface {
 	BankeringRequest() (region, name string, gold uint64)
-	BankeringReplay(code int32)
+	BankeringReply(code int32)
 	BankeringId() string
-	BecomBanker()
+	BecomeBanker()
 	Winner
 }
 

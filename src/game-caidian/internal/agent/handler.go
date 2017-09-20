@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	. "game-caidian/internal/gameinfo"
+	"game-caidian/internal/logic"
 	gamewriter "game-net/writer"
 	"game-share/centerservice"
 	"game-util/publisher"
@@ -17,6 +18,7 @@ import (
 var (
 	errIllegalAgent = errors.New("not a valid agent")
 	errAuthFailed   = errors.New("agent ticket invalid")
+	errUnknownProto = errors.New("unknown proto")
 )
 
 type Reader struct {
@@ -25,12 +27,14 @@ type Reader struct {
 	name   string
 	authed bool
 	pub    *publisher.Publisher
+	ge     *logic.GameEngine
 }
 
-func NewReader(pub *publisher.Publisher) *Reader {
+func NewReader(pub *publisher.Publisher, ge *logic.GameEngine) *Reader {
 	return &Reader{
 		authed: false,
 		pub:    pub,
+		ge:     ge,
 	}
 }
 
@@ -91,9 +95,46 @@ func (h *Reader) Read(ctx context.Context, r io.Reader, w io.Writer) error {
 func (h *Reader) executeBuffer(proto uint16, buf *bytes.Buffer, rw gamewriter.Writer) error {
 	switch proto {
 	case CmAgentOperate:
+		return h.doOperate(buf, rw)
 	default:
-
+		return errUnknownProto
 	}
+}
+
+func (h *Reader) doOperate(buf *bytes.Buffer, rw gamewriter.Writer) error {
+	var op AgentOperateReq
+
+	if err := binary.Read(buf, binary.LittleEndian, &op); err != nil {
+		return err
+	}
+
+	if op.Operate == 0 {
+		// banker
+		b := &AgentBankering{
+			token:   h.token,
+			server:  h.server,
+			account: string(op.Account[:]),
+			name:    string(op.Name[:]),
+			gold:    op.OpGold,
+			w:       rw,
+			uid:     op.Reserved,
+		}
+		h.ge.AddBankering(b)
+	} else {
+		// bet
+		b := &AgentBet{
+			token:   h.token,
+			server:  h.server,
+			account: string(op.Account[:]),
+			name:    string(op.Name[:]),
+			gold:    op.OpGold,
+			w:       rw,
+			uid:     op.Reserved,
+			pos:     int32(op.Pos),
+		}
+		h.ge.AddBet(b)
+	}
+
 	return nil
 }
 

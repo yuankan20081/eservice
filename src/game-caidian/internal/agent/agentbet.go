@@ -55,5 +55,12 @@ func (ab *AgentBet) UpdateFrom(other BetInfo) {
 }
 
 func (ab *AgentBet) Win(gold uint64) {
+	var body = AgentGift{
+		Reserved: ab.uid,
+		Gold:     gold + ab.gold,
+	}
+	copy(body.Account[:], []byte(ab.account))
+	copy(body.Name[:], []byte(ab.name))
 
+	ab.w.WriteResponse(SmAgentGift, &body)
 }

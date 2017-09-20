@@ -47,7 +47,7 @@ func main() {
 	go func() {
 		defer wg.Done()
 
-		ge := logic.NewGameEngine()
+		ge := logic.NewGameEngine(pub)
 		if err := ge.Serve(ctx); err != nil {
 			errChannel <- err
 		}

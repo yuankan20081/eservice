@@ -1,4 +1,4 @@
-package agent
+package gameinfo
 
 const (
 	HeadSize      = 10

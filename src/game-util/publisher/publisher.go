@@ -2,8 +2,8 @@ package publisher
 
 import (
 	"errors"
+	"game-net/writer"
 	"golang.org/x/net/context"
-	"io"
 	"log"
 	"sync"
 )
@@ -14,19 +14,19 @@ var (
 
 type Publisher struct {
 	mu sync.RWMutex
-	m  map[io.Writer]int
+	m  map[writer.Writer]int
 
 	errorChannel chan error
 }
 
 func New() *Publisher {
 	return &Publisher{
-		m:            make(map[io.Writer]int),
+		m:            make(map[writer.Writer]int),
 		errorChannel: make(chan error, 1000),
 	}
 }
 
-func (pub *Publisher) Add(w io.Writer) error {
+func (pub *Publisher) Add(w writer.Writer) error {
 	pub.mu.Lock()
 	defer pub.mu.Unlock()
 
@@ -39,7 +39,7 @@ func (pub *Publisher) Add(w io.Writer) error {
 	return nil
 }
 
-func (pub *Publisher) Remove(w io.Writer) error {
+func (pub *Publisher) Remove(w writer.Writer) error {
 	pub.mu.Lock()
 	defer pub.mu.Unlock()
 	delete(pub.m, w)
@@ -47,15 +47,14 @@ func (pub *Publisher) Remove(w io.Writer) error {
 	return nil
 }
 
-func (pub *Publisher) Write(p []byte) (int, error) {
+func (pub *Publisher) Publish(proto uint16, body interface{}) {
 	pub.mu.Lock()
 	defer pub.mu.Unlock()
 
-	for w, _ := range pub.m {
-		go pub.publish(w, p)
+	for w := range pub.m {
+		go w.WriteResponse(proto, body)
 	}
 
-	return len(p), nil
 }
 
 func (pub *Publisher) Serve(ctx context.Context) error {
@@ -66,12 +65,5 @@ func (pub *Publisher) Serve(ctx context.Context) error {
 		case err := <-pub.errorChannel:
 			log.Println(err)
 		}
-	}
-}
-
-func (pub *Publisher) publish(w io.Writer, p []byte) {
-	if _, err := w.Write(p); err != nil {
-		pub.errorChannel <- err
-		pub.Remove(w)
 	}
 }

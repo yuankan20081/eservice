@@ -1,6 +1,11 @@
 package agent
 
-import "io"
+import (
+	"bytes"
+	"crypto/md5"
+	"game-net/writer"
+	"io"
+)
 
 type AgentBankering struct {
 	token   string
@@ -8,7 +13,8 @@ type AgentBankering struct {
 	account string
 	name    string
 	gold    uint64
-	w       io.Writer
+	w       writer.Writer
+	uid     uint64
 }
 
 func (ab *AgentBankering) BankeringRequest() (string, string, uint64) {
@@ -19,9 +25,14 @@ func (ab *AgentBankering) BankeringReply(code int32) {
 
 }
 
-func (ab *AgentBankering) BankerId() uint64 {
-
-	return 0
+func (ab *AgentBankering) BankerId() string {
+	m := md5.New()
+	io.WriteString(m, ab.token)
+	io.WriteString(m, ab.server)
+	io.WriteString(m, ab.account)
+	io.WriteString(m, ab.name)
+	b := bytes.NewBuffer(m.Sum(nil))
+	return b.String()
 }
 
 func (ab *AgentBankering) BecomeBanker() {

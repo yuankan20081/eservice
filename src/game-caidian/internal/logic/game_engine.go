@@ -1,29 +1,12 @@
 package logic
 
 import (
+	. "game-caidian/internal/gameinfo"
 	"game-util"
+	"game-util/publisher"
 	"golang.org/x/net/context"
 	"time"
 )
-
-type Winner interface {
-	Win(gold uint64)
-}
-
-type BankeringInfo interface {
-	BankeringRequest() (region, name string, gold uint64)
-	BankeringReplay(code int32)
-	BankeringId() uint64
-	BecomBanker()
-	Winner
-}
-
-type BetInfo interface {
-	BetRequest() (region, name string, pos int32, gold uint64)
-	BetReply(code int32)
-	BetterId() uint64
-	Winner
-}
 
 type GameEngineStatus int32
 
@@ -39,40 +22,44 @@ const (
 func (gs GameEngineStatus) String() string {
 	switch gs {
 	case IsChoosingBanker:
-		return ""
+		return "正在抢庄"
 	case BankerChosed:
-		return ""
+		return "正在抽庄"
 	case IsBetting:
-		return ""
+		return "正在下注"
 	case BettingClosed:
-		return ""
+		return "下注结束"
 	case Balancing:
-		return ""
+		return "正在结算"
 	case Rewarding:
-		return ""
+		return "正在开奖"
 	default:
 		return "unknown"
 	}
 }
+
+type GameResult [3]int32
 
 type GameEngine struct {
 	curStatus            GameEngineStatus
 	statusChangedChannel chan GameEngineStatus
 	bankerChannel        chan BankeringInfo
 	betChannel           chan BetInfo
-	lstBankering         map[uint64]BankeringInfo
-	lstBetting           map[uint64]BetInfo
-	results              [3]int32
+	lstBankering         map[string]BankeringInfo
+	lstBetting           map[string]BetInfo
+	results              GameResult
+	pub                  *publisher.Publisher
 }
 
-func NewGameEngine() *GameEngine {
+func NewGameEngine(pub *publisher.Publisher) *GameEngine {
 	return &GameEngine{
 		curStatus:            IsChoosingBanker,
 		statusChangedChannel: make(chan GameEngineStatus, 1),
 		bankerChannel:        make(chan BankeringInfo, 1000),
 		betChannel:           make(chan BetInfo, 1000),
-		lstBankering:         make(map[uint64]BankeringInfo),
-		lstBetting:           make(map[uint64]BetInfo),
+		lstBankering:         make(map[string]BankeringInfo),
+		lstBetting:           make(map[string]BetInfo),
+		pub:                  pub,
 	}
 }
 
@@ -93,7 +80,9 @@ func (ge *GameEngine) Serve(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case status := <-ge.statusChangedChannel:
-			// TODO: broadcast status change
+			ge.curStatus = status
+			// broadcast status change
+			go ge.broadcastGameStatus()
 
 			switch status {
 			case IsChoosingBanker:
@@ -112,23 +101,44 @@ func (ge *GameEngine) Serve(ctx context.Context) error {
 
 		case info := <-ge.bankerChannel:
 			if ge.curStatus != IsChoosingBanker {
+				// wrong timing
 				info.BankeringReplay(1)
+				continue
+			}
+
+			id := info.BankeringId()
+
+			if _, ok := ge.lstBankering[id]; ok {
+				// already in queue
+				info.BankeringReplay(2)
 				continue
 			}
 
 			// TODO: check satisfy server config
 
 			// if all ok
-			ge.lstBankering[info.BankeringId()] = info
+			ge.lstBankering[id] = info
 		case info := <-ge.betChannel:
 			if ge.curStatus != IsBetting {
 				info.BetReply(1)
 				continue
 			}
 
-			// TODO: check ambigous bet
+			id := info.BetterId()
 
-			// if all ok
+			if old, ok := ge.lstBetting[id]; ok {
+				if old.BetPos() != info.BetPos() {
+					// ambigous bet
+					info.BetReply(2)
+				} else {
+					// update old from info
+					old.UpdateFrom(info)
+				}
+
+				continue
+			}
+
+			// if fresh new info
 			ge.lstBetting[info.BetterId()] = info
 		}
 	}
@@ -137,7 +147,7 @@ func (ge *GameEngine) Serve(ctx context.Context) error {
 }
 
 func (ge *GameEngine) beginEventChoosingBanker(ctx context.Context) error {
-	game_util.Debug("开始抢庄")
+	game_util.Debug("---当前阶段 %s---", ge.curStatus)
 	defer time.AfterFunc(time.Second*5, func() {
 		ge.statusChangedChannel <- BankerChosed
 	})
@@ -148,7 +158,7 @@ func (ge *GameEngine) beginEventChoosingBanker(ctx context.Context) error {
 }
 
 func (ge *GameEngine) beginEventBankerClose(ctx context.Context) error {
-	game_util.Debug("开始抽庄")
+	game_util.Debug("---当前阶段 %s---", ge.curStatus)
 	// TODO: choose a banker or go back choosing
 	if len(ge.lstBankering) == 0 {
 		time.AfterFunc(time.Second*2, func() {
@@ -162,7 +172,7 @@ func (ge *GameEngine) beginEventBankerClose(ctx context.Context) error {
 }
 
 func (ge *GameEngine) beginEventBetting(ctx context.Context) error {
-	game_util.Debug("开始下注")
+	game_util.Debug("---当前阶段 %s---", ge.curStatus)
 	defer time.AfterFunc(time.Second*10, func() {
 		ge.statusChangedChannel <- BettingClosed
 	})
@@ -171,7 +181,7 @@ func (ge *GameEngine) beginEventBetting(ctx context.Context) error {
 }
 
 func (ge *GameEngine) beginEventBettingClose(ctx context.Context) error {
-	game_util.Debug("下注结束")
+	game_util.Debug("---当前阶段 %s---", ge.curStatus)
 	defer time.AfterFunc(time.Second*2, func() {
 		ge.statusChangedChannel <- Balancing
 	})
@@ -180,23 +190,23 @@ func (ge *GameEngine) beginEventBettingClose(ctx context.Context) error {
 }
 
 func (ge *GameEngine) beginEventBalance(ctx context.Context) error {
-	game_util.Debug("开始结算")
+	game_util.Debug("---当前阶段 %s---", ge.curStatus)
 	defer time.AfterFunc(time.Second*2, func() {
 		ge.statusChangedChannel <- Rewarding
 	})
 
 	// TODO: broadcast result
 
-	// TODO: calc reward
-
 	return nil
 }
 
 func (ge *GameEngine) beginEventReward(ctx context.Context) error {
-	game_util.Debug("开始发奖")
+	game_util.Debug("---当前阶段 %s---", ge.curStatus)
 	defer time.AfterFunc(time.Second*2, func() {
 		ge.statusChangedChannel <- IsChoosingBanker
 	})
+
+	// TODO: calc reward
 
 	return nil
 }
@@ -205,4 +215,13 @@ func (ge *GameEngine) prepareResults() {
 	for i, _ := range ge.results {
 		ge.results[i] = int32(i)
 	}
+}
+
+func (ge *GameEngine) broadcastGameStatus() {
+	var body = GameStatusChanged{
+		Step: byte(ge.curStatus),
+		Stay: 5,
+	}
+
+	ge.pub.Publish(SmGameStatus, &body)
 }

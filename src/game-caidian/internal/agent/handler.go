@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	. "game-caidian/internal/gameinfo"
+	gamewriter "game-net/writer"
 	"game-share/centerservice"
 	"game-util/publisher"
 	"golang.org/x/net/context"
@@ -33,6 +35,10 @@ func NewReader(pub *publisher.Publisher) *Reader {
 }
 
 func (h *Reader) Read(ctx context.Context, r io.Reader, w io.Writer) error {
+	var rw = &responseWriter{
+		Writer: w,
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -63,35 +69,26 @@ func (h *Reader) Read(ctx context.Context, r io.Reader, w io.Writer) error {
 			binary.Read(buf, binary.LittleEndian, &auth)
 
 			// do auth rpc
-			if token, server, success, err := h.doCenterAuth(ctx, "", string(auth.LicKey[:])); err != nil {
+			if err := h.doCenterAuth(ctx, "", string(auth.LicKey[:]), rw); err != nil {
 				return err
-			} else if !success {
-				// do reply fail
-				h.authReply(w, 1)
-				return errAuthFailed
-			} else {
-				// do replay success
-				h.authReply(w, 0)
-				h.token = token
-				h.server = server
 			}
 
 			h.authed = true
 
 			// regist to publisher
-			h.pub.Add(w)
-			defer h.pub.Remove(w)
+			h.pub.Add(rw)
+			defer h.pub.Remove(rw)
 
 			continue
 		}
 
-		if err := h.executeBuffer(head.Proto, buf, w); err != nil {
+		if err := h.executeBuffer(head.Proto, buf, rw); err != nil {
 			return err
 		}
 	}
 }
 
-func (h *Reader) executeBuffer(proto uint16, buf *bytes.Buffer, w io.Writer) error {
+func (h *Reader) executeBuffer(proto uint16, buf *bytes.Buffer, rw gamewriter.Writer) error {
 	switch proto {
 	case CmAgentOperate:
 	default:
@@ -100,11 +97,11 @@ func (h *Reader) executeBuffer(proto uint16, buf *bytes.Buffer, w io.Writer) err
 	return nil
 }
 
-func (h *Reader) doCenterAuth(ctx context.Context, ip, ticket string) (string, string, bool, error) {
+func (h *Reader) doCenterAuth(ctx context.Context, ip, ticket string, w gamewriter.Writer) error {
 	ctx, _ = context.WithTimeout(ctx, time.Second*2)
 	cc, err := grpc.DialContext(ctx, "127.0.0.1:41000", grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
-		return "", "", false, err
+		return err
 	}
 	defer cc.Close()
 
@@ -117,32 +114,33 @@ func (h *Reader) doCenterAuth(ctx context.Context, ip, ticket string) (string, s
 
 	reply, err := center.AgentAuth(ctx, &req)
 	if err != nil {
-		return "", "", false, err
+		return err
 	}
 
-	return reply.Token, reply.Server, reply.Code == centerservice.AgentAuthReply_SUCCESS, nil
+	//return reply.Token, reply.Server, reply.Code == centerservice.AgentAuthReply_SUCCESS, nil
+	if reply.Code != centerservice.AgentAuthReply_SUCCESS {
+		w.WriteResponse(SmAgentAuth, &AgentAuthReply{
+			Err:    1,
+			EncKey: DefaultEncKey,
+		})
+		return errAuthFailed
+	} else {
+		h.token = reply.Token
+		h.server = reply.Server
+		w.WriteResponse(SmAgentAuth, &AgentAuthReply{
+			Err:    0,
+			EncKey: DefaultEncKey,
+		})
+		return nil
+	}
 }
 
-func (h *Reader) authReply(w io.Writer, code byte) {
-	var body = AgentAuthReply{
-		Err:    code,
-		EncKey: DefaultEncKey,
-	}
-
-	var aw = AgentWriter{
-		w:     w,
-		proto: SmAgentAuth,
-	}
-
-	binary.Write(&aw, binary.LittleEndian, &body)
-}
-
-type AgentWriter struct {
+type agentWriter struct {
 	w     io.Writer
 	proto uint16
 }
 
-func (aw *AgentWriter) Write(p []byte) (int, error) {
+func (aw *agentWriter) Write(p []byte) (int, error) {
 	EncBuff(p, DefaultEncKey)
 
 	var head = PacHead{
@@ -160,4 +158,17 @@ func (aw *AgentWriter) Write(p []byte) (int, error) {
 	} else {
 		return len(p), nil
 	}
+}
+
+type responseWriter struct {
+	io.Writer
+}
+
+func (w *responseWriter) WriteResponse(proto uint16, body interface{}) {
+	var aw = agentWriter{
+		w:     w.Writer,
+		proto: proto,
+	}
+
+	binary.Write(&aw, binary.LittleEndian, body)
 }

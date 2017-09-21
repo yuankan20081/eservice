@@ -1,0 +1,19 @@
+[
+  {
+    "Server":"猜点测试区1",
+    "BindIP":"127.0.0.1",
+    "ExpireHours":1
+  },
+
+  {
+    "Server":"猜点测试区2",
+    "BindIP":"127.0.0.1",
+    "ExpireHours":10
+  },
+
+  {
+    "Server":"猜点测试区3",
+    "BindIP":"127.0.0.1",
+    "ExpireHours":20
+  }
+]

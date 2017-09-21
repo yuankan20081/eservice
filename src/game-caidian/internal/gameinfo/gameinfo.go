@@ -10,6 +10,7 @@ type BankeringInfo interface {
 	BankeringId() string
 	BecomeBanker()
 	BankMoreThan(other BankeringInfo) bool
+	Uid() uint64
 	Winner
 }
 

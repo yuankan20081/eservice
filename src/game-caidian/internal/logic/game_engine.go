@@ -66,6 +66,8 @@ type GameEngine struct {
 	curTotalSmallbet     uint64
 	curBigbetAvail       uint64
 	curSmallbetAvail     uint64
+	curBankerUid         uint64
+	curBankerAccount     string
 }
 
 func NewGameEngine(pub *publisher.Publisher) *GameEngine {
@@ -150,9 +152,19 @@ func (ge *GameEngine) Serve(ctx context.Context) error {
 					// ambigous bet
 					info.BetReply(2)
 				} else {
-					// update old from info
-					old.UpdateFrom(info)
-					info.BetReply(0)
+					// check limit
+					_, _, pos, gold := info.BetRequest()
+					if pos == 1 && ge.curBigbetAvail < gold {
+						// over limit
+						info.BetReply(3)
+					} else if pos == 2 && ge.curSmallbetAvail < gold {
+						info.BetReply(3)
+					} else {
+						// update old from info
+						old.UpdateFrom(info)
+						info.BetReply(0)
+						ge.updateBet(info)
+					}
 				}
 
 				continue
@@ -161,6 +173,7 @@ func (ge *GameEngine) Serve(ctx context.Context) error {
 			// if fresh new info
 			ge.lstBetting[info.BetterId()] = info
 			info.BetReply(0)
+			ge.updateBet(info)
 		}
 	}
 
@@ -175,6 +188,12 @@ func (ge *GameEngine) beginEventChoosingBanker(ctx context.Context) error {
 
 	// prepare results
 	ge.prepareResults()
+
+	ge.curTotalSmallbet = 0
+	ge.curTotalBigbet = 0
+	ge.curSmallbetAvail = 0
+	ge.curBigbetAvail = 0
+
 	return nil
 }
 
@@ -202,7 +221,8 @@ func (ge *GameEngine) beginEventBankerClose(ctx context.Context) error {
 			ge.curSmallbetAvail = ge.curBankerGold
 
 			// TODO: maybe should broadcast?
-			find.BecomeBanker()
+			ge.broadcastBanker()
+
 			enterNextStep = func() {
 				ge.statusChangedChannel <- IsBetting
 			}
@@ -286,4 +306,42 @@ func (ge *GameEngine) broadcastDice() {
 	copy(body.Dice.DiceVal[:], ge.results[:])
 
 	ge.pub.Publish(SmBroadcastDice, &body)
+}
+
+func (ge *GameEngine) broadcastWager() {
+	var body = AgentWagerShow{
+		BigGold:   ge.curTotalBigbet,
+		BigLim:    ge.curBigbetAvail,
+		SmallGold: ge.curTotalSmallbet,
+		SmallLim:  ge.curSmallbetAvail,
+	}
+
+	ge.pub.Publish(SmBroadcastWager, &body)
+}
+
+func (ge *GameEngine) broadcastBanker() {
+	var body = AgentBanker{
+		Gold:     ge.curBankerGold,
+		Reserved: ge.curBankerUid,
+	}
+	copy(body.Server[:], []byte(ge.curBankerServer))
+	copy(body.Account[:], []byte(ge.curBankerAccount))
+	copy(body.Name[:], []byte(ge.curBankerName))
+
+	ge.pub.Publish(SmAgentBecomeBanker, &body)
+}
+
+func (ge *GameEngine) updateBet(info BetInfo) {
+	_, _, _, gold := info.BetRequest()
+	if info.BetPos() == 1 {
+		ge.curTotalBigbet += gold
+		ge.curBigbetAvail -= gold
+		ge.curSmallbetAvail += gold
+	} else {
+		ge.curTotalSmallbet += gold
+		ge.curSmallbetAvail -= gold
+		ge.curBigbetAvail += gold
+	}
+
+	ge.broadcastWager()
 }

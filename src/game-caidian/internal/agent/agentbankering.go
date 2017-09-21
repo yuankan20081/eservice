@@ -18,6 +18,10 @@ type AgentBankering struct {
 	uid     uint64
 }
 
+func (ab *AgentBankering) Uid() uint64 {
+	return ab.uid
+}
+
 func (ab *AgentBankering) BankeringRequest() (string, string, uint64) {
 	return ab.server, ab.name, ab.gold
 }

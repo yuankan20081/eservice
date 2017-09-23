@@ -1,10 +1,12 @@
 package logic
 
 import (
+	"game-caidian/internal/config/observer"
 	. "game-caidian/internal/gameinfo"
 	"game-util"
 	"game-util/publisher"
 	"golang.org/x/net/context"
+	"math/rand"
 	"time"
 )
 
@@ -90,7 +92,7 @@ func (ge *GameEngine) AddBet(info BetInfo) {
 	ge.betChannel <- info
 }
 
-func (ge *GameEngine) Serve(ctx context.Context) error {
+func (ge *GameEngine) Serve(ctx context.Context, co *observer.Observer) error {
 	// prepare
 	ge.statusChangedChannel <- ge.curStatus
 
@@ -101,21 +103,21 @@ func (ge *GameEngine) Serve(ctx context.Context) error {
 		case status := <-ge.statusChangedChannel:
 			ge.curStatus = status
 			// broadcast status change
-			go ge.broadcastGameStatus()
+			go ge.broadcastGameStatus(co)
 
 			switch status {
 			case IsChoosingBanker:
-				ge.beginEventChoosingBanker(ctx)
+				ge.beginEventChoosingBanker(ctx, co)
 			case BankerChosed:
-				ge.beginEventBankerClose(ctx)
+				ge.beginEventBankerClose(ctx, co)
 			case IsBetting:
-				ge.beginEventBetting(ctx)
+				ge.beginEventBetting(ctx, co)
 			case BettingClosed:
-				ge.beginEventBettingClose(ctx)
+				ge.beginEventBettingClose(ctx, co)
 			case Balancing:
-				ge.beginEventBalance(ctx)
+				ge.beginEventBalance(ctx, co)
 			case Rewarding:
-				ge.beginEventReward(ctx)
+				ge.beginEventReward(ctx, co)
 			}
 
 		case info := <-ge.bankerChannel:
@@ -180,9 +182,9 @@ func (ge *GameEngine) Serve(ctx context.Context) error {
 	return nil
 }
 
-func (ge *GameEngine) beginEventChoosingBanker(ctx context.Context) error {
-	game_util.Debug("---当前阶段 %s---", ge.curStatus)
-	defer time.AfterFunc(time.Second*5, func() {
+func (ge *GameEngine) beginEventChoosingBanker(ctx context.Context, co *observer.Observer) error {
+	game_util.Debug("---当前阶段 %s, %d---", ge.curStatus, co.Config().Volatile.TimeBankering)
+	defer time.AfterFunc(time.Second*co.Config().Volatile.TimeBankering, func() {
 		ge.statusChangedChannel <- BankerChosed
 	})
 
@@ -197,8 +199,8 @@ func (ge *GameEngine) beginEventChoosingBanker(ctx context.Context) error {
 	return nil
 }
 
-func (ge *GameEngine) beginEventBankerClose(ctx context.Context) error {
-	game_util.Debug("---当前阶段 %s---", ge.curStatus)
+func (ge *GameEngine) beginEventBankerClose(ctx context.Context, co *observer.Observer) error {
+	game_util.Debug("---当前阶段 %s, %d---", ge.curStatus, co.Config().Volatile.TimeChooseBanker)
 
 	enterNextStep := func() {
 		ge.statusChangedChannel <- IsChoosingBanker
@@ -229,32 +231,32 @@ func (ge *GameEngine) beginEventBankerClose(ctx context.Context) error {
 		}
 	}
 
-	time.AfterFunc(time.Second*2, enterNextStep)
+	time.AfterFunc(time.Second*co.Config().Volatile.TimeChooseBanker, enterNextStep)
 
 	return nil
 }
 
-func (ge *GameEngine) beginEventBetting(ctx context.Context) error {
-	game_util.Debug("---当前阶段 %s---", ge.curStatus)
-	defer time.AfterFunc(time.Second*10, func() {
+func (ge *GameEngine) beginEventBetting(ctx context.Context, co *observer.Observer) error {
+	game_util.Debug("---当前阶段 %s, %d---", ge.curStatus, co.Config().Volatile.TimeBet)
+	defer time.AfterFunc(time.Second*co.Config().Volatile.TimeBet, func() {
 		ge.statusChangedChannel <- BettingClosed
 	})
 
 	return nil
 }
 
-func (ge *GameEngine) beginEventBettingClose(ctx context.Context) error {
-	game_util.Debug("---当前阶段 %s---", ge.curStatus)
-	defer time.AfterFunc(time.Second*2, func() {
+func (ge *GameEngine) beginEventBettingClose(ctx context.Context, co *observer.Observer) error {
+	game_util.Debug("---当前阶段 %s, %d---", ge.curStatus, co.Config().Volatile.TimeCloseBet)
+	defer time.AfterFunc(time.Second*co.Config().Volatile.TimeCloseBet, func() {
 		ge.statusChangedChannel <- Balancing
 	})
 
 	return nil
 }
 
-func (ge *GameEngine) beginEventBalance(ctx context.Context) error {
-	game_util.Debug("---当前阶段 %s---", ge.curStatus)
-	defer time.AfterFunc(time.Second*2, func() {
+func (ge *GameEngine) beginEventBalance(ctx context.Context, co *observer.Observer) error {
+	game_util.Debug("---当前阶段 %s, %d---", ge.curStatus, co.Config().Volatile.TimeBalance)
+	defer time.AfterFunc(time.Second*co.Config().Volatile.TimeBalance, func() {
 		ge.statusChangedChannel <- Rewarding
 	})
 
@@ -264,8 +266,8 @@ func (ge *GameEngine) beginEventBalance(ctx context.Context) error {
 	return nil
 }
 
-func (ge *GameEngine) beginEventReward(ctx context.Context) error {
-	game_util.Debug("---当前阶段 %s---", ge.curStatus)
+func (ge *GameEngine) beginEventReward(ctx context.Context, co *observer.Observer) error {
+	game_util.Debug("---当前阶段 %s, %d---", ge.curStatus, co.Config().Volatile.TimeReward)
 	// TODO: calc reward
 	if ge.results.BankerWin() {
 
@@ -275,7 +277,7 @@ func (ge *GameEngine) beginEventReward(ctx context.Context) error {
 
 	}
 
-	defer time.AfterFunc(time.Second*2, func() {
+	defer time.AfterFunc(time.Second*co.Config().Volatile.TimeReward, func() {
 		// TODO: do some cleanup
 		ge.lstBetting = make(map[string]BetInfo)
 		ge.lstBankering = make(map[string]BankeringInfo)
@@ -287,15 +289,36 @@ func (ge *GameEngine) beginEventReward(ctx context.Context) error {
 }
 
 func (ge *GameEngine) prepareResults() {
+	rand.Seed(time.Now().Unix())
+
 	for i, _ := range ge.results {
-		ge.results[i] = byte(i)
+		ge.results[i] = byte(rand.Intn(6) + 1)
 	}
+
+	game_util.Debug("%v", ge.results)
 }
 
-func (ge *GameEngine) broadcastGameStatus() {
+func (ge *GameEngine) broadcastGameStatus(co *observer.Observer) {
+	var stay time.Duration
+
+	switch ge.curStatus {
+	case IsChoosingBanker:
+		stay = co.Config().Volatile.TimeBankering
+	case BankerChosed:
+		stay = co.Config().Volatile.TimeChooseBanker
+	case IsBetting:
+		stay = co.Config().Volatile.TimeBet
+	case BettingClosed:
+		stay = co.Config().Volatile.TimeCloseBet
+	case Balancing:
+		stay = co.Config().Volatile.TimeBalance
+	case Rewarding:
+		stay = co.Config().Volatile.TimeReward
+	}
+
 	var body = GameStatusChanged{
-		Step: byte(ge.curStatus),
-		Stay: 5,
+		Step: byte(ge.curStatus) + 1,
+		Stay: byte(stay),
 	}
 
 	ge.pub.Publish(SmGameStatus, &body)
@@ -304,6 +327,13 @@ func (ge *GameEngine) broadcastGameStatus() {
 func (ge *GameEngine) broadcastDice() {
 	var body BroadcastDice
 	copy(body.Dice.DiceVal[:], ge.results[:])
+	if ge.results[0] == ge.results[1] && ge.results[1] == ge.results[2] {
+		body.Dice.Result = 2
+	} else if ge.results[0]+ge.results[1]+ge.results[2] < 11 {
+		body.Dice.Result = 0 //xiao
+	} else {
+		body.Dice.Result = 1 //da
+	}
 
 	ge.pub.Publish(SmBroadcastDice, &body)
 }

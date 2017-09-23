@@ -1,0 +1,13 @@
+{
+  "LocalAddress":"127.0.0.1:9090",
+  "CenterAddress":"127.0.0.1:9100",
+  "MaxConnection":5000,
+  "Volatile":{
+    "TimeBankering":15,
+    "TimeChooseBanker":2,
+    "TimeBet":40,
+    "TimeCloseBet":2,
+    "TimeBalance": 5,
+    "TimeReward": 2
+  }
+}

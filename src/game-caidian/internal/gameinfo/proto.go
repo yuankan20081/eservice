@@ -30,7 +30,7 @@ type PacHead struct {
 }
 
 type AgentAuthReq struct {
-	LicKey [38]byte
+	LicKey [32]byte
 }
 
 type AgentAuthReply struct {
@@ -63,6 +63,7 @@ type GameStatusChanged struct {
 type BroadcastDice struct {
 	Dice struct {
 		DiceVal [3]byte
+		Result  byte //0-xiao,1-da,2-baozi
 	}
 }
 

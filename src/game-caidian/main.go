@@ -2,6 +2,7 @@ package main
 
 import (
 	"game-caidian/internal/agent"
+	"game-caidian/internal/config/observer"
 	"game-caidian/internal/logic"
 	"game-net/tcp-server"
 	"game-net/tcp-session"
@@ -17,15 +18,28 @@ import (
 )
 
 func main() {
-	l, err := net.Listen("tcp", ":12000")
+	errChannel := make(chan error, 10)
+	var wg sync.WaitGroup
+	ctx, cancelCtx := context.WithCancel(context.Background())
+
+	co := observer.New()
+	wg.Add(1)
+	go func() {
+		err := co.Watch(ctx, "./setup.json", func(ctx context.Context, co *observer.Observer) {
+			wg.Done()
+		})
+		if err != nil {
+			log.Fatalln(err)
+		}
+	}()
+	// wait until config initialize
+	wg.Wait()
+
+	l, err := net.Listen("tcp", co.Config().LocalAddress)
 	if err != nil {
 		log.Fatalln(err)
 	}
 	defer l.Close()
-
-	errChannel := make(chan error, 10)
-	var wg sync.WaitGroup
-	ctx, cancelCtx := context.WithCancel(context.Background())
 
 	// debug limit
 	ctx, cancelCtx = context.WithTimeout(ctx, time.Hour*2)
@@ -48,7 +62,7 @@ func main() {
 	go func() {
 		defer wg.Done()
 
-		if err := ge.Serve(ctx); err != nil {
+		if err := ge.Serve(ctx, co); err != nil {
 			errChannel <- err
 		}
 	}()
@@ -59,12 +73,12 @@ func main() {
 		defer wg.Done()
 
 		s := tcp_server.New(tcp_server.RawConnHandleFunc(func(ctx context.Context, conn net.Conn) error {
-			c := tcp_session.New(agent.NewReader(pub, ge))
+			c := tcp_session.New(agent.NewReader(pub, ge, co))
 
 			return c.Serve(ctx, conn)
 		}))
 
-		if err := s.Serve(ctx, l, 1000); err != nil {
+		if err := s.Serve(ctx, l, co.Config().MaxConnection); err != nil {
 			errChannel <- err
 		}
 	}()

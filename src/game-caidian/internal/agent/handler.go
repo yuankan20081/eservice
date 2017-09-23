@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"game-caidian/internal/config/observer"
 	. "game-caidian/internal/gameinfo"
 	"game-caidian/internal/logic"
 	gamewriter "game-net/writer"
@@ -28,13 +29,15 @@ type Reader struct {
 	authed bool
 	pub    *publisher.Publisher
 	ge     *logic.GameEngine
+	co     *observer.Observer
 }
 
-func NewReader(pub *publisher.Publisher, ge *logic.GameEngine) *Reader {
+func NewReader(pub *publisher.Publisher, ge *logic.GameEngine, co *observer.Observer) *Reader {
 	return &Reader{
 		authed: false,
 		pub:    pub,
 		ge:     ge,
+		co:     co,
 	}
 }
 
@@ -140,7 +143,7 @@ func (h *Reader) doOperate(buf *bytes.Buffer, rw gamewriter.Writer) error {
 
 func (h *Reader) doCenterAuth(ctx context.Context, ip, ticket string, w gamewriter.Writer) error {
 	ctx, _ = context.WithTimeout(ctx, time.Second*2)
-	cc, err := grpc.DialContext(ctx, "127.0.0.1:41000", grpc.WithInsecure(), grpc.WithBlock())
+	cc, err := grpc.DialContext(ctx, h.co.Config().CenterAddress, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
 		return err
 	}
@@ -188,6 +191,7 @@ func (aw *agentWriter) Write(p []byte) (int, error) {
 		Tag:           MsgTag,
 		Proto:         aw.proto,
 		PayloadLength: uint16(len(p)) + HeadSize,
+		EncType:       2,
 	}
 
 	var buf bytes.Buffer
